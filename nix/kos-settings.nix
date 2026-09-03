@@ -9,7 +9,7 @@
 stdenv.mkDerivation {
     pname = "kos-settings";
     version = "unstable";
-    src = src;
+    src = "${src}/apps/settings";
 
     nativeBuildInputs = [ cmake ];
 
@@ -26,9 +26,9 @@ stdenv.mkDerivation {
         mkdir -p $out/bin
         install -m 0755 kos-settings $out/bin/
         mkdir -p $out/share/kos/settings
-        cp ${src}/apps/settings/main.qml $out/share/kos/settings/main.qml
+        cp ${src}/main.qml $out/share/kos/settings/main.qml
         mkdir -p $out/share/shared/qml
-        cp -r ${src}/shared/qml/controls $out/share/shared/qml/controls
+        cp -r ${src}/../../shared/qml/controls $out/share/shared/qml/controls
         runHook postInstall
     '';
 
