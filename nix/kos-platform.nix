@@ -13,6 +13,7 @@ stdenv.mkDerivation {
 
   nativeBuildInputs = [
     cmake
+    kdePackages.extra-cmake-modules
   ];
 
   buildInputs = [
