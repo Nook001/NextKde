@@ -18,18 +18,24 @@ stdenv.mkDerivation {
         kdePackages.qtdeclarative
     ];
 
-    cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Release" ];
-    dontWrapQtApps = true;
+    dontBuild = true;
 
     installPhase = ''
         runHook preInstall
-        mkdir -p $out/bin
-        install -m 0755 kos-settings $out/bin/
-        # Copy QML files from source repo (src is repo root)
+
+        # Build only apps/settings subdirectory
+        cmake -S "${src}/apps/settings" -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$out
+        cmake --build build --parallel
+        cmake --install build
+
+        # Install QML files
         mkdir -p $out/share/kos/settings
         cp $src/apps/settings/main.qml $out/share/kos/settings/main.qml
         mkdir -p $out/share/shared/qml
         cp -r $src/shared/qml/controls $out/share/shared/qml/controls
+
         runHook postInstall
     '';
 
