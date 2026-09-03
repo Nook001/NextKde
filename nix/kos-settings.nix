@@ -30,13 +30,13 @@ stdenv.mkDerivation {
         mkdir -p $out/share/kos/settings
         cp ${src}/main.qml $out/share/kos/settings/main.qml
         mkdir -p $out/share/shared/qml
-        cp -r ${src}/../shared/qml/controls $out/share/shared/qml/controls
+        cp -r ${src}/../../shared/qml/controls $out/share/shared/qml/controls
         runHook postInstall
     '';
 
     meta = with lib; {
         description = "KOS Desktop Shell settings application";
-        homepage = "https://github.com/SuceV587/NextKde.git";
+        homepage = "https://gitee.com/xiaoyintx_ciallo/test";
         license = licenses.gpl3;
         platforms = platforms.linux;
     };
