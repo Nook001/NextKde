@@ -16,6 +16,7 @@ stdenv.mkDerivation {
         cmake
         ninja
         kdePackages.qtbase
+        kdePackages.qtdeclarative
     ];
 
     dontWrapQtApps = true;
