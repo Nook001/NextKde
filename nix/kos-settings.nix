@@ -13,6 +13,7 @@ stdenv.mkDerivation {
     inherit src;
 
     nativeBuildInputs = [
+        cmake
         ninja
         kdePackages.qtbase
         kdePackages.qtdeclarative
