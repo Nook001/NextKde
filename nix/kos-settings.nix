@@ -2,6 +2,7 @@
     lib,
     stdenv,
     cmake,
+    ninja,
     kdePackages,
     src,
 }:
@@ -9,34 +10,21 @@
 stdenv.mkDerivation {
     pname = "kos-settings";
     version = "unstable";
-    src = src;
+    src = "${src}/apps/settings";
 
-    nativeBuildInputs = [ cmake ];
-
-    buildInputs = [
+    nativeBuildInputs = [
+        cmake
+        ninja
         kdePackages.qtbase
-        kdePackages.qtdeclarative
     ];
 
-    dontBuild = true;
+    dontWrapQtApps = true;
 
-    installPhase = ''
-        runHook preInstall
+    cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Release" ];
 
-        # Build only apps/settings subdirectory
-        cmake -S "${src}/apps/settings" -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=$out
-        cmake --build build --parallel
-        cmake --install build
-
-        # Install QML files
-        mkdir -p $out/share/kos/settings
-        cp $src/apps/settings/main.qml $out/share/kos/settings/main.qml
+    postInstall = ''
         mkdir -p $out/share/shared/qml
-        cp -r $src/shared/qml/controls $out/share/shared/qml/controls
-
-        runHook postInstall
+        cp -r ${src}/../../shared/qml/controls $out/share/shared/qml/controls
     '';
 
     meta = with lib; {

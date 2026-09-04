@@ -18,16 +18,17 @@ let
       export GOPROXY=https://goproxy.cn,direct
     '';
     postInstall = ''
-      # Go names the binary after the module path; rename to expected name
+      mkdir -p $out/libexec
       if [ -f "$out/bin/data-service" ]; then
-        mv "$out/bin/data-service" "$out/bin/shell-data-service"
+        mv "$out/bin/data-service" $out/libexec/kos-data-service
       fi
+      rm -rf $out/bin
     '';
   };
 
   patched-service = runCommand "kos-data.service" { } ''
     mkdir -p $out/lib/systemd/user
-    sed 's|%h/.local/libexec/kos-data-service|${go-service}/bin/shell-data-service|g' \
+    sed 's|%h/.local/libexec/kos-data-service|${go-service}/libexec/kos-data-service|g' \
       ${src}/packaging/systemd/kos-data.service \
       > $out/lib/systemd/user/kos-data.service
   '';
@@ -40,8 +41,8 @@ stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    mkdir -p $out/lib/quickshell $out/lib/systemd/user
-    ln -s ${go-service}/bin/shell-data-service $out/lib/quickshell/shell-data-service
+    mkdir -p $out/libexec $out/lib/systemd/user
+    ln -s ${go-service}/libexec/kos-data-service $out/libexec/kos-data-service
     cp ${patched-service}/lib/systemd/user/kos-data.service \
       $out/lib/systemd/user/
 

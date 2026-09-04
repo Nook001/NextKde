@@ -54,30 +54,44 @@ stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
 
+    # --- Binaries ---
+    mkdir -p $out/libexec
+    ln -s ${kos-platform}/libexec/kos-platform $out/libexec/kos-platform
+    ln -s ${shell-data-service}/libexec/kos-data-service $out/libexec/kos-data-service
+
+    mkdir -p $out/bin
+    ln -s ${kos-settings}/bin/kos-settings $out/bin/kos-settings
+
+    # --- Shared QML / Shell ---
     mkdir -p $out/share/kos-desktop
     cp -r shell/ $out/share/kos-desktop/
     cp -r shared/ $out/share/kos-desktop/
     cp shell/shell.qml $out/share/kos-desktop/shell.qml
-    # quickshell resolves imports relative to shell.qml, desktop must be a sibling
     cp -r shell/desktop $out/share/kos-desktop/desktop
 
-    mkdir -p $out/share/applications
-    substitute packaging/desktop/kos-settings.desktop.in \
-      $out/share/applications/kos-settings.desktop \
-      --replace-fail 'kos-settings' "${kos-settings}/bin/kos-settings"
+    # --- Settings QML (for reference; kos-settings binary embeds path) ---
+    mkdir -p $out/share/kos/settings
+    cp apps/settings/main.qml $out/share/kos/settings/main.qml
 
-    mkdir -p $out/lib/quickshell
-    ln -s ${shell-data-service}/lib/quickshell/shell-data-service \
-      $out/lib/quickshell/shell-data-service
-
-    mkdir -p $out/libexec
-    ln -s ${kos-platform}/libexec/kos-platform \
-      $out/libexec/kos-platform
-
+    # --- KWin bridge script ---
     mkdir -p $out/share/kos/platform/kwin
     ln -s ${kos-platform}/share/kos/platform/kwin/window-bridge.js \
       $out/share/kos/platform/kwin/window-bridge.js
 
+    # --- Shared QML controls ---
+    mkdir -p $out/share/shared/qml
+    cp -r shared/qml/controls $out/share/shared/qml/controls
+
+    # --- Desktop entries ---
+    mkdir -p $out/share/applications
+    substitute packaging/desktop/kos-settings.desktop.in \
+      $out/share/applications/kos-settings.desktop \
+      --replace-fail 'kos-settings' "${kos-settings}/bin/kos-settings"
+    substitute packaging/desktop/org.kos.Platform.desktop.in \
+      $out/share/applications/org.kos.Platform.desktop \
+      --replace-fail '@KOS_PLATFORM_EXEC@' "${kos-platform}/libexec/kos-platform"
+
+    # --- Systemd user services ---
     mkdir -p $out/lib/systemd/user
     cp ${patched-platform-service}/lib/systemd/user/kos-platform.service \
       $out/lib/systemd/user/
