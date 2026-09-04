@@ -13,6 +13,7 @@ let
   kwin-dock-window-animation = pkgs.callPackage ./kwin-dock-window-animation.nix { inherit src; };
   kwin-context-menu-input = pkgs.callPackage ./kwin-context-menu-input.nix { inherit src; };
   kwin-effects-glass = pkgs.callPackage ./kwin-effects-glass.nix { inherit src; };
+  kosctl = pkgs.callPackage ./kosctl.nix { inherit src; };
 
   qs_bin = if quickshell != null then "${quickshell}/bin/quickshell" else "/run/current-system/sw/bin/quickshell";
 
@@ -104,7 +105,7 @@ stdenv.mkDerivation {
   '';
 
   passthru = {
-    inherit shell-data-service kos-settings kos-platform
+    inherit shell-data-service kos-settings kos-platform kosctl
             kwin-dock-window-animation kwin-context-menu-input kwin-effects-glass;
     inherit patched-platform-service patched-shell-service;
   };
