@@ -13,13 +13,13 @@ stdenv.mkDerivation {
     inherit src;
 
     nativeBuildInputs = [
-        cmake
         ninja
         kdePackages.qtbase
         kdePackages.qtdeclarative
     ];
 
     dontBuild = true;
+    dontConfigure = true;
     dontWrapQtApps = true;
 
     installPhase = ''
