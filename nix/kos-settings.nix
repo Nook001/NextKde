@@ -10,7 +10,7 @@
 stdenv.mkDerivation {
     pname = "kos-settings";
     version = "unstable";
-    src = "${src}/apps/settings";
+    inherit src;
 
     nativeBuildInputs = [
         cmake
@@ -19,9 +19,23 @@ stdenv.mkDerivation {
         kdePackages.qtdeclarative
     ];
 
+    dontBuild = true;
     dontWrapQtApps = true;
 
-    cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Release" ];
+    installPhase = ''
+        runHook preInstall
+
+        cmake -S "${src}/apps/settings" -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$out
+        cmake --build build --parallel
+        cmake --install build
+
+        mkdir -p $out/share/shared/qml
+        cp -r $src/shared/qml/controls $out/share/shared/qml/controls
+
+        runHook postInstall
+    '';
 
     meta = with lib; {
         description = "KOS Desktop Shell settings application";
