@@ -25,7 +25,7 @@ stdenv.mkDerivation {
 
     postPatch = ''
         substituteInPlace apps/settings/CMakeLists.txt \
-            --replace-fail 'RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/build"' 'RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"'
+            --replace-fail 'RUNTIME_OUTPUT_DIRECTORY "''${CMAKE_CURRENT_SOURCE_DIR}/build"' 'RUNTIME_OUTPUT_DIRECTORY "''${CMAKE_BINARY_DIR}"'
     '';
 
     installPhase = ''
