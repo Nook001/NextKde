@@ -23,10 +23,10 @@ writeShellScriptBin "kos-ctl" ''
   UNIT_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
   SHELL_CONFIG="''${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/kos"
 
-  print_ok()   { printf "${GREEN}✓${NC} %s\n" "$1"; }
-  print_warn() { printf "${YELLOW}⚠${NC} %s\n" "$1"; }
-  print_err()  { printf "${RED}✗${NC} %s\n" "$1"; }
-  print_info() { printf "${CYAN}ℹ${NC} %s\n" "$1"; }
+  print_ok()   { printf "$GREEN✓$NC %s\n" "$1"; }
+  print_warn() { printf "$YELLOW⚠$NC %s\n" "$1"; }
+  print_err()  { printf "$RED✗$NC %s\n" "$1"; }
+  print_info() { printf "$CYANℹ$NC %s\n" "$1"; }
 
   usage() {
     cat <<'EOF'
@@ -136,12 +136,12 @@ EOF
   }
 
   show_status() {
-    printf "\n${GREEN}=== KOS Service Status ===${NC}\n"
+    printf "\n$GREEN=== KOS Service Status ===$NC\n"
     for unit in kos-platform.service kos-data.service kos-shell.service; do
       if systemctl --user is-active "$unit" >/dev/null 2>&1; then
-        printf "  ${GREEN}●${NC} %s: running\n" "$unit"
+        printf "  $GREEN●$NC %s: running\n" "$unit"
       else
-        printf "  ${RED}●${NC} %s: stopped\n" "$unit"
+        printf "  $RED●$NC %s: stopped\n" "$unit"
       fi
     done
     printf "\n"
