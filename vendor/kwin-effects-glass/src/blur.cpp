@@ -141,6 +141,7 @@ BlurEffect::BlurEffect()
         m_roundedOnscreenPass.highlightWidthPxLocation = m_roundedOnscreenPass.shader->uniformLocation("highlightWidthPx");
         m_roundedOnscreenPass.highlightAngleLocation = m_roundedOnscreenPass.shader->uniformLocation("highlightAngle");
         m_roundedOnscreenPass.surfaceScaleLocation = m_roundedOnscreenPass.shader->uniformLocation("surfaceScale");
+        m_roundedOnscreenPass.lensStrengthScaleLocation = m_roundedOnscreenPass.shader->uniformLocation("lensStrengthScale");
         m_roundedOnscreenPass.refractionStrengthLocation = m_roundedOnscreenPass.shader->uniformLocation("refractionStrength");
         m_roundedOnscreenPass.refractionNormalPowLocation = m_roundedOnscreenPass.shader->uniformLocation("refractionNormalPow");
         m_roundedOnscreenPass.refractionRGBFringingLocation = m_roundedOnscreenPass.shader->uniformLocation("refractionRGBFringing");
@@ -203,6 +204,7 @@ BlurEffect::BlurEffect()
 
 #ifdef GLASS_KWIN_67
     waylandServer()->backgroundEffectManager()->addBlurCapability();
+    m_blurCapabilityRegistered = true;
 #endif
 
     connect(effects, &EffectsHandler::windowAdded, this, &BlurEffect::slotWindowAdded);
@@ -271,8 +273,10 @@ BlurEffect::~BlurEffect()
     }
 #endif
 
-#ifdef GLASS_WIN_67
-    waylandServer()->backgroundEffectManager()->removeBlurCapability();
+#ifdef GLASS_KWIN_67
+    if (m_blurCapabilityRegistered) {
+        waylandServer()->backgroundEffectManager()->removeBlurCapability();
+    }
 #endif
 }
 
@@ -350,15 +354,26 @@ void BlurEffect::reconfigure(ReconfigureFlags flags)
         m_settings.general.dockBlurStrength,
         m_settings.general.dockNoiseStrength
     );
+    // AppearanceConfig maps 0..1 to 15 stored levels with
+    // round(1 + strength * 14), then settings.cpp converts that to the
+    // zero-based pipeline index. 15% therefore maps to index 2.
+    constexpr int fullScreenLauncherMinimumBlurIndex = 2;
+    m_fullScreenLauncherBlurSettings = pipelineSettingsForStrength(
+        std::max(m_settings.general.blurStrength,
+                 fullScreenLauncherMinimumBlurIndex),
+        m_settings.general.noiseStrength
+    );
     m_maxIterationCount = std::max({
         m_contentBlurSettings.iterationCount,
         m_decorationBlurSettings.iterationCount,
         m_dockBlurSettings.iterationCount,
+        m_fullScreenLauncherBlurSettings.iterationCount,
     });
     m_expandSize = std::max({
         m_contentBlurSettings.expandSize,
         m_decorationBlurSettings.expandSize,
         m_dockBlurSettings.expandSize,
+        m_fullScreenLauncherBlurSettings.expandSize,
     });
     m_blurRadius = m_settings.general.blurRadius;
     m_upsampleOffset = m_settings.general.upsampleOffset;
@@ -379,6 +394,17 @@ void BlurEffect::reconfigure(ReconfigureFlags flags)
 
     m_whitelist = (m_settings.forceBlur.windowClassMatchingMode == WindowClassMatchingMode::Whitelist);
     m_windowClasses = m_settings.forceBlur.windowClasses;
+
+    // forceBlur.blurDecorations is materialized into each window's frame
+    // region. Refresh from the compositor's stable stacking-order snapshot so
+    // toggling it applies immediately and updateBlurRegion may safely erase
+    // entries from m_windows. Initial construction uses slotWindowAdded below.
+    if (m_valid) {
+        const auto stackingOrder = effects->stackingOrder();
+        for (EffectWindow *window : stackingOrder) {
+            updateBlurRegion(window);
+        }
+    }
 
     // Update all windows for the blur to take effect
     effects->addRepaintFull();
@@ -409,6 +435,7 @@ void BlurEffect::updateBlurRegion(EffectWindow *w)
     std::optional<BlurRegion> frame;
     std::optional<qreal> saturation;
     std::optional<qreal> contrast;
+    bool hasExplicitBlurRequest = false;
 
 #ifdef GLASS_X11
     if (net_wm_blur_region != XCB_ATOM_NONE) {
@@ -430,6 +457,7 @@ void BlurEffect::updateBlurRegion(EffectWindow *w)
         }
         if (!value.isNull()) {
             content = region;
+            hasExplicitBlurRequest = true;
         }
     }
 #endif
@@ -443,10 +471,12 @@ void BlurEffect::updateBlurRegion(EffectWindow *w)
                 region += rect.toAlignedRect();
             }
             content = region;
+            hasExplicitBlurRequest = true;
         }
 #else
         if (surface->blur()) {
             content = surface->blur()->region();
+            hasExplicitBlurRequest = true;
         }
         if (surface->contrast()) {
             saturation = surface->contrast()->saturation();
@@ -459,11 +489,13 @@ void BlurEffect::updateBlurRegion(EffectWindow *w)
         const auto property = internal->property("kwin_blur");
         if (property.isValid()) {
             content = property.value<BlurRegion>();
+            hasExplicitBlurRequest = true;
         }
     }
 
     if (w->decorationHasAlpha() && decorationSupportsBlurBehind(w)) {
         frame = decorationBlurRegion(w);
+        hasExplicitBlurRequest = true;
     }
 
     if (
@@ -485,6 +517,7 @@ void BlurEffect::updateBlurRegion(EffectWindow *w)
 
     if (content.has_value() || frame.has_value()) {
         BlurEffectData &data = m_windows[w];
+        data.hasExplicitBlurRequest = hasExplicitBlurRequest;
         data.content = content;
         data.frame = frame;
         data.colorMatrix = colorTransformMatrix(saturation.value_or(1.0), contrast.value_or(1.0), 1.0);
@@ -1036,11 +1069,16 @@ bool BlurEffect::shouldBlur(const EffectWindow *w, int mask, const WindowPaintDa
 
     const auto windowClass = w->window()->resourceClass();
     const auto resourceName = w->window()->resourceName();
+    const auto blurData = m_windows.find(const_cast<EffectWindow *>(w));
+    const bool explicitlyRequestedBlur = blurData != m_windows.end()
+        && blurData->second.hasExplicitBlurRequest;
 
     // Layer-shell clients may expose either "quickshell" or an application
     // id such as "org.quickshell".  Match both resource fields instead of
-    // relying on a single exact, user-maintained window-class entry.
-    if (m_settings.forceBlur.onlyQuickshell) {
+    // relying on a single exact, user-maintained window-class entry. These
+    // filters govern forced blur only: a normal application that explicitly
+    // publishes a blur-behind region must retain the standard KDE contract.
+    if (!explicitlyRequestedBlur && m_settings.forceBlur.onlyQuickshell) {
         const auto isQuickshell = [](const QString &value) {
             return value.contains(QLatin1String("quickshell"), Qt::CaseInsensitive);
         };
@@ -1058,7 +1096,8 @@ bool BlurEffect::shouldBlur(const EffectWindow *w, int mask, const WindowPaintDa
 
     const auto matches = classes.contains(windowClass) || classes.contains(resourceName);
 
-    if ((m_whitelist && !matches) || (!m_whitelist && matches)) {
+    if (!explicitlyRequestedBlur
+        && ((m_whitelist && !matches) || (!m_whitelist && matches))) {
         return false;
     }
 
@@ -1172,7 +1211,15 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
     const BlurRegion effectShape = transformShape(blurRegion(w, &cornerRadius));
     const BlurRegion contentShape = transformShape(contentRegion(w, &cornerRadius));
     const BlurRegion frameShape = effectShape - contentShape;
-    const BlurPipelineSettings &contentBlurSettings = w->isDock() ? m_dockBlurSettings : m_contentBlurSettings;
+    const QRectF launcherFrame = w->frameGeometry();
+    const bool isFullScreenLauncher = !w->isDock()
+        && launcherFrame.width() > 1500.0
+        && launcherFrame.height() > 300.0
+        && w->pos().y() < 10.0;
+    const BlurPipelineSettings &contentBlurSettings = w->isDock()
+        ? m_dockBlurSettings
+        : (isFullScreenLauncher ? m_fullScreenLauncherBlurSettings
+                                : m_contentBlurSettings);
     const BlurPipelineSettings &combinedBlurSettings =
         (contentShape.isEmpty() && !frameShape.isEmpty()) ? m_decorationBlurSettings : contentBlurSettings;
     const bool splitBlurSettings = !frameShape.isEmpty() &&
@@ -1342,7 +1389,12 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
 
         glClearColor(0, 0, 0, 0);
         for (size_t i = 0; i <= m_maxIterationCount; ++i) {
-            auto texture = GLTexture::allocate(textureFormat, backgroundRect.size() / (1 << i));
+            // Dual Kawase halves each level. Very thin blur regions (for
+            // example KOS's 6 px dock reveal handle) eventually truncate to
+            // zero in one dimension. Keep those levels valid without skipping
+            // the window's early animation frames altogether.
+            const QSize textureSize = (backgroundRect.size() / (1 << i)).expandedTo(QSize(1, 1));
+            auto texture = GLTexture::allocate(textureFormat, textureSize);
             if (!texture) {
                 qCWarning(KWIN_BLUR) << "Failed to allocate an offscreen texture";
                 return;
@@ -1631,8 +1683,8 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
     if (w->isDock()) {
         effectiveHighlightAngle = 45.0f;   // top-left + bottom-right
     } else {
-        const qreal wgt = w->frameGeometry().width();
-        const qreal hgt = w->frameGeometry().height();
+        const qreal wgt = launcherFrame.width();
+        const qreal hgt = launcherFrame.height();
         const qreal y = w->pos().y();
         if (wgt > 1500.0 && hgt > 300.0) {
             // Full-screen panels. applauncher reaches the very top of the
@@ -1662,6 +1714,14 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
                              : (w->isNotification() || w->isOnScreenDisplay()) ? 0.5f
                              : 1.0f;
     m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.surfaceScaleLocation, surfaceScale);
+    // Dock, menus, notifications and OSD stay visually stable while the
+    // content behind them moves. Reserve the full lens for small transient
+    // controls and previews, where a stronger refraction communicates touch.
+    const float lensStrengthScale = w->isDock() ? 0.45f
+                                  : (w->isMenu() || w->isDropdownMenu() || w->isPopupMenu()) ? 0.55f
+                                  : (w->isNotification() || w->isOnScreenDisplay()) ? 0.35f
+                                  : 1.0f;
+    m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.lensStrengthScaleLocation, lensStrengthScale);
     auto tintStrengthForRegion = [&](bool decorationRegion) {
         if (w->isDock() && m_settings.general.excludeDocks) {
             return 0.0f;
