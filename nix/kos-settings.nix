@@ -25,7 +25,7 @@ stdenv.mkDerivation {
 
     installPhase = ''
         runHook preInstall
-
+        cd $TMPDIR
         cmake -S "${src}/apps/settings" -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=$out
