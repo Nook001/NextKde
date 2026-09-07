@@ -498,21 +498,61 @@ void BlurEffect::updateBlurRegion(EffectWindow *w)
         hasExplicitBlurRequest = true;
     }
 
-    if (
-        m_settings.forceBlur.blurDecorations &&
-        !(
-            w->isDock() ||
-            w->isMenu() ||
-            w->isDropdownMenu() ||
-            w->isPopupMenu() ||
-            w->isPopupWindow()
-        )
-    ) {
+    // KOS: scope the whole-window glass backdrop to windows that actually have
+    // a server-side decoration, instead of every window that is not a dock or
+    // a menu.
+    //
+    // The intent is that an application can leave its own background fully
+    // transparent and let this effect supply the material, the same way the
+    // shell's own surfaces are drawn. Relying on each application to declare a
+    // blur region does not achieve that: a client that paints nothing may
+    // publish no region at all, and then there is no glass behind it.
+    //
+    // Keying on the decoration is what keeps that from swallowing the desktop.
+    // Layer-shell surfaces -- the Dock, the Bar, and above all the full-screen
+    // DeskCenter -- carry no decoration, so they are left alone; with the old
+    // condition DeskCenter's whole surface became a blur region and the
+    // wallpaper behind it was permanently out of focus. Client-side decorated
+    // windows are skipped too, which is correct: they draw their own frame and
+    // never asked for this one.
+    if (m_settings.forceBlur.blurDecorations && w->decoration()) {
 #ifdef GLASS_X11
-        frame = BlurRegion(w->frameGeometry().translated(-w->x(), -w->y()).toRect());
+        BlurRegion glass(w->frameGeometry().translated(-w->x(), -w->y()).toRect());
 #else
-        frame = Region(Rect(w->frameGeometry().translated(-w->x(), -w->y()).toRect()));
+        BlurRegion glass(Rect(w->frameGeometry().translated(-w->x(), -w->y()).toRect()));
 #endif
+
+        // Whatever the client declares opaque is cut back out again.
+        //
+        // Glass behind an opaque area is invisible by definition, and paying
+        // for it is not the real cost: a blur region that overlaps the
+        // window's opaque region drives the repaint bookkeeping further down
+        // this file (m_paintedDeviceArea / m_currentDeviceBlur) to keep
+        // re-expanding the damaged area every frame, and the title bar visibly
+        // flickers. That is why an opaque file manager flickered while a
+        // terminal with a translucent profile, whose opaque region is empty,
+        // did not.
+        //
+        // Subtracting it also makes the option mean what it says: the window
+        // gets glass exactly where the client lets something show through, so
+        // an application that paints nothing gets the full pane.
+#ifndef GLASS_X11
+        if (SurfaceInterface *surface = w->surface()) {
+            const RegionF opaque = surface->opaque();
+            if (!opaque.isEmpty()) {
+                // surface->opaque() is surface-local; contentsRect() places the
+                // client area inside the frame the region above is built in.
+                const QPoint clientOffset = w->contentsRect().topLeft().toPoint();
+                Region opaqueInFrame;
+                for (const RectF &rect : opaque.rects()) {
+                    opaqueInFrame += rect.toAlignedRect().translated(clientOffset);
+                }
+                glass -= opaqueInFrame;
+            }
+        }
+#endif
+
+        frame = glass;
     }
 
     if (content.has_value() || frame.has_value()) {
