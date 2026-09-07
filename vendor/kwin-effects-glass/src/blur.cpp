@@ -183,7 +183,7 @@ BlurEffect::BlurEffect()
     }
 
     m_noisePass.shader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture,
-                                                                           QStringLiteral(":/effects/glass/generated/vertex.vert"),
+                                                                           QStringLiteral(":/effects/glass/generated/onscreen_rounded.vert"),
                                                                            QStringLiteral(":/effects/glass/generated/noise.frag"));
     if (!m_noisePass.shader) {
         qCWarning(KWIN_BLUR) << "Failed to load noise pass shader";
@@ -191,6 +191,8 @@ BlurEffect::BlurEffect()
     } else {
         m_noisePass.mvpMatrixLocation = m_noisePass.shader->uniformLocation("modelViewProjectionMatrix");
         m_noisePass.noiseTextureSizeLocation = m_noisePass.shader->uniformLocation("noiseTextureSize");
+        m_noisePass.boxLocation = m_noisePass.shader->uniformLocation("box");
+        m_noisePass.cornerRadiusLocation = m_noisePass.shader->uniformLocation("cornerRadius");
     }
 
     initBlurStrengthValues();
@@ -1818,6 +1820,8 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
 
             m_noisePass.shader->setUniform(m_noisePass.mvpMatrixLocation, noiseProjectionMatrix);
             m_noisePass.shader->setUniform(m_noisePass.noiseTextureSizeLocation, QVector2D(noiseTexture->width(), noiseTexture->height()));
+            m_noisePass.shader->setUniform(m_noisePass.boxLocation, shaderBox);
+            m_noisePass.shader->setUniform(m_noisePass.cornerRadiusLocation, shaderCornerRadius.toVector());
 
             glActiveTexture(GL_TEXTURE0);
             noiseTexture->bind();
