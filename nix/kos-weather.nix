@@ -3,10 +3,13 @@
   stdenv,
   cmake,
   kdePackages,
-  go,
   src,
 }:
 
+let
+  # Build the Go data service separately using buildGoModule (handles vendoring)
+  go-service = kdePackages.callPackage ./shell-data-service.nix { inherit src; };
+in
 stdenv.mkDerivation {
   pname = "kos-weather";
   version = "unstable";
@@ -15,7 +18,6 @@ stdenv.mkDerivation {
   nativeBuildInputs = [
     cmake
     kdePackages.extra-cmake-modules
-    go
     kdePackages.wrapQtAppsHook
   ];
 
@@ -23,6 +25,19 @@ stdenv.mkDerivation {
     kdePackages.qtbase
     kdePackages.qtdeclarative
   ];
+
+  # Use a fake Go binary to skip the CMake data-service build step.
+  # The real data service is built separately via buildGoModule.
+  preConfigure = ''
+    mkdir -p $TMPDIR/fake-bin
+    cat > $TMPDIR/fake-bin/go <<'SCRIPT'
+    #!/bin/sh
+    echo "go: skipped (pre-built externally)"
+    exit 0
+    SCRIPT
+    chmod +x $TMPDIR/fake-bin/go
+    export PATH=$TMPDIR/fake-bin:$PATH
+  '';
 
   cmakeFlags = [
     "-DCMAKE_BUILD_TYPE=Release"
@@ -35,11 +50,10 @@ stdenv.mkDerivation {
     "-DBUILD_TESTING=OFF"
   ];
 
-  preBuild = ''
-    export GOPROXY=https://goproxy.cn,direct
-    export GOCACHE=$TMPDIR/go-cache
-    export GOPATH=$TMPDIR/go-path
-    mkdir -p $GOCACHE $GOPATH
+  # Install the real pre-built data service alongside the weather binary
+  postInstall = ''
+    mkdir -p $out/libexec
+    ln -s ${go-service}/libexec/kos-data-service $out/libexec/kos-data-service
   '';
 
   meta = with lib; {
