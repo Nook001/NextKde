@@ -13,5 +13,9 @@
         "Name": "KOS Liquid Glass",
         "Name[zh_CN]": "KOS 液态玻璃",
         "Version": "1.0"
+    },
+    "org.kde.kdecoration3": {
+        "blur": true,
+        "recommendedBorderSize": "None"
     }
 }
