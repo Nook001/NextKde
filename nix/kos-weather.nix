@@ -37,6 +37,9 @@ stdenv.mkDerivation {
 
   preBuild = ''
     export GOPROXY=https://goproxy.cn,direct
+    export GOCACHE=$TMPDIR/go-cache
+    export GOPATH=$TMPDIR/go-path
+    mkdir -p $GOCACHE $GOPATH
   '';
 
   meta = with lib; {
