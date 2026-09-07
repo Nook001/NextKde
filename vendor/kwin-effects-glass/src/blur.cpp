@@ -1394,12 +1394,21 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
     }
 
     if (smoothQuickshellCard) {
-        // Only use the full-card smooth path when the repaint region covers the
-        // entire card.  When a popup appears/disappears, deviceRegion is a narrow
-        // strip and dirtyRegion only covers part of the card -- rendering the full
-        // area would blur stale framebuffer[0] content and flicker.  In that case
-        // keep the deviceRegion-clipped effectiveContentShape so the onscreen pass
-        // only touches the region that was actually updated.
+        // A narrow repaint (including pointer damage at a card edge) must not
+        // render the entire card: framebuffer[0] is only refreshed for
+        // dirtyRegion below, and sampling the rest can blend stale pixels and
+        // flicker.  However, intersecting the damage with the Wayland blur
+        // region also preserves its pixel-stair-step approximation of the
+        // rounded corners. Use the bounding rectangle clipped to deviceRegion
+        // instead. The SDF in the onscreen shader supplies the exact rounded
+        // coverage, while this geometry still writes only refreshed pixels.
+        BlurRegion smoothCardBounds;
+        smoothCardBounds += backgroundRect;
+        effectiveContentShape = buildEffectiveShape(smoothCardBounds);
+
+        // When the card is fully repainted, use one rectangle rather than the
+        // individual damage rectangles. This is only a geometry simplification;
+        // it does not change which framebuffer pixels are captured.
         RectF eeBounds;
         for (const auto &r : effectiveEffectShape) {
             eeBounds = eeBounds.united(r);
@@ -1413,8 +1422,6 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
 #else
             effectiveContentShape.append(RectF(0, 0, scaledBackgroundRect.width(), scaledBackgroundRect.height()));
 #endif
-        } else {
-            smoothQuickshellCard = false;
         }
     }
 
@@ -1710,34 +1717,10 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
         : QVector2D(nativeBox.width(), nativeBox.height()));
     m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.edgeSizePixelsLocation, m_settings.refraction.edgeSizePixels);
     m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.highlightWidthPxLocation, m_settings.refraction.highlightWidthPx);
-    // Per-surface highlight direction. KWin's LayerShellV1Window is a private
-    // class (symbols not exported), so the layer-shell namespace set in QML
-    // can't be read from the effect. Instead we use stable geometry + type
-    // signals, which the log confirms reliably distinguish the panels:
-    //   dock            : isDock() + bottom, full-width strip
-    //   bar             : top, full-width 35px strip (no blur region)
-    //   applauncher     : full-screen to the very top (y==0)
-    //   quicksearch     : full-screen below the bar (y≈35)
-    //   control-center  : small cards (<500px wide)
-    // iOS does the same thing visually - one light, but each surface's
-    // geometry reads it differently.
-    float effectiveHighlightAngle = m_settings.refraction.highlightAngle;
-    if (w->isDock()) {
-        effectiveHighlightAngle = 45.0f;   // top-left + bottom-right
-    } else {
-        const qreal wgt = launcherFrame.width();
-        const qreal hgt = launcherFrame.height();
-        const qreal y = w->pos().y();
-        if (wgt > 1500.0 && hgt > 300.0) {
-            // Full-screen panels. applauncher reaches the very top of the
-            // output (y==0); quicksearch sits below the bar (y≈35).
-            effectiveHighlightAngle = (y < 10.0) ? -1.0f : 135.0f;
-        } else {
-            // Small cards (control center): keep the configured direction.
-            effectiveHighlightAngle = 45.0f;
-        }
-    }
-    m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.highlightAngleLocation, effectiveHighlightAngle);
+    // Keep the legacy uniform populated for shader/config compatibility. The
+    // current material uses one stable top-down screen-space light for every
+    // surface, so moving between Dock, launcher, and cards cannot rotate it.
+    m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.highlightAngleLocation, 90.0f);
     m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.refractionStrengthLocation, m_settings.refraction.refractionStrength);
     m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.refractionNormalPowLocation, m_settings.refraction.refractionNormalPow);
     m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.refractionRGBFringingLocation, m_settings.refraction.refractionRGBFringing);
@@ -1752,7 +1735,7 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
     m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.autoTintAlphaLocation, m_settings.general.autoTintAlpha ? 1 : 0);
     // Per-surface material strength: the always-visible dock gets a more
     // pronounced glassy rim, transient popups stay subtle.
-    const float surfaceScale = w->isDock() ? 1.8f
+    const float surfaceScale = w->isDock() ? 1.3f
                              : (w->isNotification() || w->isOnScreenDisplay()) ? 0.5f
                              : 1.0f;
     m_roundedOnscreenPass.shader->setUniform(m_roundedOnscreenPass.surfaceScaleLocation, surfaceScale);
