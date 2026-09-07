@@ -15,6 +15,7 @@ let
   kwin-context-menu-input = pkgs.callPackage ./kwin-context-menu-input.nix { inherit src; };
   kwin-effects-glass = pkgs.callPackage ./kwin-effects-glass.nix { inherit src; };
   kosctl = pkgs.callPackage ./kosctl.nix { inherit src; };
+  kwin-decoration-liquid-glass = pkgs.callPackage ./kwin-decoration-liquid-glass.nix { inherit src; };
   kos-weather = if buildWeather then pkgs.callPackage ./kos-weather.nix { inherit src; } else null;
 
   qs_bin = if quickshell != null then "${quickshell}/bin/quickshell" else "/run/current-system/sw/bin/quickshell";
@@ -113,7 +114,8 @@ stdenv.mkDerivation {
 
   passthru = {
     inherit shell-data-service kos-settings kos-platform kosctl
-            kwin-dock-window-animation kwin-context-menu-input kwin-effects-glass;
+            kwin-dock-window-animation kwin-context-menu-input kwin-effects-glass
+            kwin-decoration-liquid-glass;
     inherit patched-platform-service patched-shell-service;
     weather = if buildWeather then kos-weather else null;
   };
