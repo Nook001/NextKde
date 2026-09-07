@@ -16,6 +16,7 @@ stdenv.mkDerivation {
     cmake
     kdePackages.extra-cmake-modules
     go
+    kdePackages.wrapQtAppsHook
   ];
 
   buildInputs = [
