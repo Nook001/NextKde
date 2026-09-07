@@ -305,36 +305,22 @@ vec3 glassOutline(vec2 position, GlassFragment s, vec4 cornerRadius)
     vec3 rgb = baseColor * (1.0 - innerShadow * 0.15);
     vec3 highlight = getHighlightColor(baseColor, 1.0);
 
-    // ── Focused edge highlight (iOS-style partial rim) ────────────────
-    // iOS glass does NOT draw a full enclosing rim. The highlight is the
-    // mirror reflection of a directional light source off the bevel's normal
-    // field: only the arc whose outward normal faces the light is bright, the
-    // rest of the rim stays dark. Because both corners along the light's
-    // diagonal share normals that face it, the highlight reads as "top-left +
-    // bottom-right" (or the opposite diagonal) instead of a closed ring.
-    //
-    // -n2d is the outward rim normal. highlightAngle (degrees, kwinrc) picks
-    //   the light direction. abs() is the iOS diagonal: the two corners on the
-    //   light's diagonal share mirror-symmetric outward normals (top-left
-    //   faces 225° when the light is at 45°), so BOTH corners light up as
-    //   "top-left + bottom-right" (or the opposite diagonal) - the signature
-    //   partial-rim look. Without abs, only one corner would be lit.
-    //   highlightAngle < 0 (applauncher) falls back to a uniform ring: all
-    //   edges lit equally, no directional focus.
-    float angleRad = highlightAngle * 3.14159265 / 180.0;
-    vec2 lightDir = vec2(cos(angleRad), sin(angleRad));
-    float facing = abs(dot(-n2d, lightDir));
-    float focused = smoothstep(0.25, 1.0, facing);
-    if (highlightAngle < 0.0) {
-        focused = 1.0;
-    }
+    // ── Stable edge highlight ──────────────────────────────────────────
+    // Use one fixed, screen-space light source instead of the mirrored
+    // diagonal arcs used by the earlier material. The upper edge carries the
+    // readable specular line and the lower edge catches only a quiet secondary
+    // reflection. This stays stable as a surface or pointer moves.
+    float topFacing = max(n2d.y, 0.0);
+    float bottomFacing = max(-n2d.y, 0.0);
+    float focused = smoothstep(0.18, 1.0, topFacing)
+                  + smoothstep(0.35, 1.0, bottomFacing) * 0.28;
 
     // Faint all-around fresnel keeps the rim visible on dark backdrops, but
     // deliberately low so the arc reads as the light source, not a ring.
     rgb += highlight * fresnel * 0.05 * surfaceScale;
-    // The directional arc: brightest where the normal faces the light.
-    // 0.42 keeps it subtle - a sheen, not a painted stripe.
-    rgb += highlight * fresnel * focused * 0.42 * surfaceScale;
+    // The upper line is crisp but restrained; the lower reflection should be
+    // felt as thickness rather than read as a second outline.
+    rgb += highlight * fresnel * focused * 0.24 * surfaceScale;
 
     // Synthetic bevel: the top edge catches light while the bottom shades
     // (n2d.y > 0 on the top edge), giving the material a physical thickness.
@@ -343,12 +329,9 @@ vec3 glassOutline(vec2 position, GlassFragment s, vec4 cornerRadius)
     float bevelGradient = n2d.y * 0.15;
     rgb += highlight * (bevelGradient * fresnel) * surfaceScale;
 
-    // Specular sheen on the same light direction, so the whole highlight
-    // rotates together when highlightAngle changes. No back-kick: a second
-    // opposing light would re-add the symmetric full-ring glow.
-    vec2 anisoN = (n2d + vec2(-n2d.y, n2d.x) * 0.2) * 0.9805806;
-    float mainLight = max(dot(anisoN, lightDir), 0.0);
-    float directional = mainLight * sqrt(mainLight) * 0.7;
+    // A narrow sheen follows the same fixed top/bottom lighting model.
+    float directional = topFacing * sqrt(topFacing) * 0.55
+                      + bottomFacing * sqrt(bottomFacing) * 0.10;
     float brightnessRaw = (directional + 0.02) * fresnel * 0.4 * surfaceScale;
     float brightness = brightnessRaw / (1.0 + brightnessRaw);
     rgb = mix(rgb, highlight, brightness);
